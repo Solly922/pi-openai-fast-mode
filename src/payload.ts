@@ -77,31 +77,6 @@ export function applyFastModePayload(
   };
 }
 
-/**
- * pi-jev-router launches models configured with `fast: true` as a copy with
- * an unregistered "<id>-fast" ID and `fastModeVariant.baseModelId` naming the
- * real model. Pi swaps a model whose ID is registered back to the registry
- * object whenever an extension registers a provider, so only an unregistered
- * ID keeps the marker for the whole session. Such a copy always runs on the
- * priority tier, whether or not /fast is on, and its requests carry the real
- * model ID.
- */
-export function getFastVariantPayload(
-  model: unknown,
-  payload: unknown,
-): unknown | undefined {
-  if (!isRecord(model) || !isRecord(model.fastModeVariant)) return undefined;
-  if (typeof model.provider !== "string") return undefined;
-  if (!isSupportedProvider(model.provider) || !isRecord(payload)) {
-    return undefined;
-  }
-
-  const { baseModelId } = model.fastModeVariant;
-  if (typeof baseModelId !== "string" || !baseModelId.trim()) return undefined;
-
-  return { ...payload, model: baseModelId, service_tier: DEFAULT_SERVICE_TIER };
-}
-
 export function getFastModePayload(
   config: FastModeConfig,
   model: ModelRef | undefined,

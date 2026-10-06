@@ -62,10 +62,6 @@ The `+` suffix denotes a GPT model version range: `gpt-5.4+` matches version 5.4
 User-scoped state is stored under `~/.pi/agent/extensions/pi-openai-fast-mode/config.json`.
 Project-scoped state is stored under `./.pi/pi-openai-fast-mode/config.json`.
 
-## Always-fast models from pi-jev-router
-
-[pi-jev-router](https://github.com/Solly922/pi-jev-router) can mark a model `fast: true`. When it launches that model, the subagent's session model is a copy with an ID that is not in Pi's registry (for example `gpt-6.1-sol-fast`) and a `fastModeVariant: { "baseModelId": "gpt-6.1-sol" }` field. For OpenAI and OpenAI-Codex models carrying that field, this extension sends the real model ID with `service_tier: "priority"` on every request, whether or not `/fast` is on. The ID must not be registered: Pi swaps a session model whose ID is registered back to the registry object whenever an extension registers a provider, which would drop the field. The subagent must load this extension, or the copy's ID reaches OpenAI and the request fails.
-
 ## Development
 
 ```bash

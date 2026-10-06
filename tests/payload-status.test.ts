@@ -4,7 +4,6 @@ import {
   findMatchingTarget,
   applyFastModePayload,
   getFastModePayload,
-  getFastVariantPayload,
   toModelRef,
 } from "../src/payload";
 import {
@@ -128,38 +127,6 @@ describe.each(["openai", "openai-codex"])("GPT-6-Astra on %s", (provider) => {
     const earlierModel = { provider, id: "gpt-5.3" };
     expect(findMatchingTarget(earlierModel, defaults.targets)).toBeUndefined();
     expect(getStatusText(enabledConfig, earlierModel)).toBeUndefined();
-  });
-});
-
-describe("pi-jev-router fast variants", () => {
-  const variant = {
-    provider: "openai-codex",
-    id: "gpt-6.1-sol-fast",
-    fastModeVariant: { baseModelId: "gpt-6.1-sol" },
-  };
-
-  it("sends the real model ID on the priority tier", () => {
-    const payload = { model: "gpt-6.1-sol-fast", input: [] };
-    expect(getFastVariantPayload(variant, payload)).toEqual({
-      model: "gpt-6.1-sol",
-      input: [],
-      service_tier: "priority",
-    });
-    expect(payload.model).toBe("gpt-6.1-sol-fast");
-  });
-
-  it("ignores models without a usable marker or a supported provider", () => {
-    const payload = { model: "x" };
-    for (const model of [
-      undefined,
-      { provider: "openai-codex", id: "gpt-6.1-sol" },
-      { ...variant, fastModeVariant: { baseModelId: " " } },
-      { ...variant, fastModeVariant: "gpt-6.1-sol" },
-      { ...variant, provider: "claude-bridge" },
-    ]) {
-      expect(getFastVariantPayload(model, payload)).toBeUndefined();
-    }
-    expect(getFastVariantPayload(variant, "not a payload")).toBeUndefined();
   });
 });
 
