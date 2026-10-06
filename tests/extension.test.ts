@@ -226,6 +226,44 @@ describe("piFastModeExtension runtime behavior", () => {
     },
   );
 
+  it("runs a pi-jev-router fast variant on priority with Fast Mode off", async () => {
+    const root = await makeTempDir();
+    const cwd = join(root, "project");
+    const agentDir = join(root, "agent");
+    await mkdir(cwd, { recursive: true });
+
+    const { pi, handlers } = createFakePi(false);
+    createPiFastModeExtension({
+      extensionDir: join(root, "global", "pi-openai-fast-mode", "src"),
+      agentDir,
+    })(pi as any);
+
+    const variant = {
+      provider: "openai-codex",
+      id: "gpt-6.1-sol-fast",
+      fastModeVariant: { baseModelId: "gpt-6.1-sol" },
+    };
+    const ctx = makeCtx(cwd, variant);
+    await runHandler(
+      handlers,
+      "session_start",
+      { type: "session_start", reason: "startup" },
+      ctx,
+    );
+
+    expect(
+      await runHandler(
+        handlers,
+        "before_provider_request",
+        {
+          type: "before_provider_request",
+          payload: { model: "gpt-6.1-sol-fast" },
+        },
+        ctx,
+      ),
+    ).toEqual({ model: "gpt-6.1-sol", service_tier: "priority" });
+  });
+
   it("--fast applies only at startup, not on later session starts such as /new", async () => {
     const root = await makeTempDir();
     const cwd = join(root, "project");

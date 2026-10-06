@@ -13,7 +13,11 @@ import {
   saveConfigToPath,
   syncSupportedTargets,
 } from "./config";
-import { getFastModePayload, toModelRef } from "./payload";
+import {
+  getFastModePayload,
+  getFastVariantPayload,
+  toModelRef,
+} from "./payload";
 import { clearFastStatus, updateFastStatus } from "./status";
 import type { FastModeConfig, ModelRef } from "./types";
 
@@ -145,7 +149,10 @@ export function createPiFastModeExtension(
 
     pi.on("before_provider_request", (event, ctx) => {
       const model = toModelRef(ctx.model) ?? currentModel;
-      return getFastModePayload(config, model, event.payload);
+      return (
+        getFastVariantPayload(ctx.model, event.payload) ??
+        getFastModePayload(config, model, event.payload)
+      );
     });
 
     // No save here: /fast and --fast persist immediately. Saving on shutdown
