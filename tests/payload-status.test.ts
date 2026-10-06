@@ -111,7 +111,7 @@ describe.each(["openai", "openai-codex"])("GPT-6-Astra on %s", (provider) => {
     expect(getStatusText(enabledConfig, variant)).toBe("fast");
   });
 
-  it.each(["gpt-6-luna", "gpt-6-sol", "gpt-7-luna-preview"])(
+  it.each(["gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-7-luna-preview"])(
     "supports %s by default",
     (id) => {
       const variant = { provider, id };
