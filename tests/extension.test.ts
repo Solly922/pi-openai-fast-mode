@@ -11,6 +11,7 @@ import { STATUS_KEY } from "../src/types";
 type FakePi = {
   registerFlag: ReturnType<typeof vi.fn>;
   registerCommand: ReturnType<typeof vi.fn>;
+  registerProvider: ReturnType<typeof vi.fn>;
   getFlag: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
 };
@@ -47,6 +48,7 @@ function createFakePi(fastFlag = false): {
     registerCommand: vi.fn((name: string, options: RegisteredCommand) => {
       commands.set(name, options);
     }),
+    registerProvider: vi.fn(),
     getFlag: vi.fn((name: string) => (name === "fast" ? fastFlag : undefined)),
     on: vi.fn((event: string, handler: Function) => {
       const list = handlers.get(event) ?? [];
@@ -65,6 +67,10 @@ function makeCtx(
   return {
     cwd,
     model,
+    modelRegistry: {
+      getAll: () => [codexModel],
+      getApiKeyForProvider: async () => "codex-token",
+    },
     hasUI: true,
     mode: "tui",
     ui: {
@@ -76,6 +82,18 @@ function makeCtx(
 }
 
 type TestContext = ReturnType<typeof makeCtx>;
+
+const codexModel = {
+  provider: "openai-codex",
+  id: "gpt-6.1-sol",
+  name: "GPT-6.1 Sol",
+  api: "openai-codex-responses",
+  reasoning: true,
+  input: ["text"],
+  cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  contextWindow: 272000,
+  maxTokens: 128000,
+};
 
 function expectFastIndicatorShown(ctx: TestContext): void {
   expect(ctx.ui.setStatus).toHaveBeenLastCalledWith(STATUS_KEY, undefined);
@@ -133,6 +151,38 @@ describe("piFastModeExtension registration", () => {
       "session_shutdown",
       "session_start",
     ]);
+  });
+
+  it("registers openai-codex-fast on session_start, whatever /fast says", async () => {
+    const root = await makeTempDir();
+    const cwd = join(root, "project");
+    await mkdir(cwd, { recursive: true });
+    const { pi, handlers } = createFakePi(false);
+    createPiFastModeExtension({
+      extensionDir: join(root, "global", "pi-openai-fast-mode", "src"),
+      agentDir: join(root, "agent"),
+    })(pi as any);
+
+    const ctx = makeCtx(cwd, {
+      provider: "openai-codex-fast",
+      id: "gpt-6.1-sol",
+    });
+    await runHandler(
+      handlers,
+      "session_start",
+      { type: "session_start", reason: "startup" },
+      ctx,
+    );
+
+    expect(pi.registerProvider).toHaveBeenCalledWith(
+      "openai-codex-fast",
+      expect.objectContaining({
+        api: "openai-codex-responses",
+        models: [expect.objectContaining({ id: "gpt-6.1-sol" })],
+      }),
+    );
+    expect(ctx.ui.notify).not.toHaveBeenCalled();
+    expectFastIndicatorShown(ctx);
   });
 });
 

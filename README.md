@@ -62,6 +62,16 @@ The `+` suffix denotes a GPT model version range: `gpt-5.4+` matches version 5.4
 User-scoped state is stored under `~/.pi/agent/extensions/pi-openai-fast-mode/config.json`.
 Project-scoped state is stored under `./.pi/pi-openai-fast-mode/config.json`.
 
+## Always-fast models: `openai-codex-fast`
+
+On every session start the extension also registers an `openai-codex-fast` provider that lists each GPT 5.4+ `openai-codex` model again, named `<model> (fast)`. These models always run on the priority tier, whatever `/fast` says, so choosing one selects Fast Mode for that session only. Pick them in `/model`, pass them to subagents, or set `fast: true` on a model in [pi-jev-router](https://github.com/Solly922/pi-jev-router) to launch its fast twin.
+
+- Requests use your existing `openai-codex` login and Pi's built-in Codex implementation. No separate login is needed.
+- The tier is applied inside the provider, so every request gets it, including compaction summaries, which skip the `before_provider_request` hook `/fast` relies on.
+- Listed costs are doubled (2.5x for gpt-5.5), matching how pi-ai prices the priority tier, so cost estimates reflect the extra usage.
+- Pi subagents share the parent session's model runtime, so they can use these models even when their `extensions:` list leaves this extension out. The provider is never unregistered, because a subagent's shutdown would remove it from the parent.
+- The list is rebuilt at each session start. A Codex model added later appears after the next `/new`, `/resume` or restart.
+
 ## Development
 
 ```bash

@@ -13,6 +13,7 @@ import {
   saveConfigToPath,
   syncSupportedTargets,
 } from "./config";
+import { registerFastCodexProvider } from "./fast-provider";
 import { getFastModePayload, toModelRef } from "./payload";
 import { clearFastStatus, updateFastStatus } from "./status";
 import type { FastModeConfig, ModelRef } from "./types";
@@ -121,6 +122,12 @@ export function createPiFastModeExtension(
     });
 
     pi.on("session_start", async (event, ctx) => {
+      try {
+        registerFastCodexProvider(pi, ctx.modelRegistry);
+      } catch (error) {
+        notifyError(ctx, error);
+      }
+
       try {
         currentModel = toModelRef(ctx.model);
         await loadForContext(ctx);

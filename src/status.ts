@@ -1,4 +1,5 @@
 import { STATUS_KEY, type FastModeConfig, type ModelRef } from "./types";
+import { FAST_CODEX_PROVIDER } from "./fast-provider";
 import { findMatchingTarget } from "./payload";
 
 export type StatusText = "fast" | undefined;
@@ -36,6 +37,8 @@ export function getStatusText(
   config: FastModeConfig,
   model: ModelRef | undefined,
 ): StatusText {
+  // openai-codex-fast models always run on priority, whatever /fast says.
+  if (model?.provider === FAST_CODEX_PROVIDER) return "fast";
   return config.enabled && findMatchingTarget(model, config.targets)
     ? "fast"
     : undefined;
