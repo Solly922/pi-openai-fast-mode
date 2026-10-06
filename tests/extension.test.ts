@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
@@ -225,6 +226,77 @@ describe("piFastModeExtension runtime behavior", () => {
     },
   );
 
+  it("--fast applies only at startup, not on later session starts such as /new", async () => {
+    const root = await makeTempDir();
+    const cwd = join(root, "project");
+    const agentDir = join(root, "agent");
+    await mkdir(cwd, { recursive: true });
+
+    const { pi, handlers, commands } = createFakePi(true);
+    createPiFastModeExtension({
+      extensionDir: join(root, "global", "pi-openai-fast-mode", "src"),
+      agentDir,
+    })(pi as any);
+
+    const ctx = makeCtx(cwd, { provider: "openai-codex", id: "gpt-6.1-sol" });
+    await runHandler(
+      handlers,
+      "session_start",
+      { type: "session_start", reason: "startup" },
+      ctx,
+    );
+    await commands.get("fast")!.handler("off", ctx);
+    await runHandler(
+      handlers,
+      "session_start",
+      { type: "session_start", reason: "new" },
+      ctx,
+    );
+
+    expect(
+      JSON.parse(await readFile(getUserConfigPath(agentDir), "utf8")),
+    ).toMatchObject({ enabled: false });
+    expectFastIndicatorHidden(ctx);
+  });
+
+  it("a failed /fast save leaves Fast Mode unchanged and no temp file behind", async () => {
+    const root = await makeTempDir();
+    const cwd = join(root, "project");
+    const agentDir = join(root, "agent");
+    await mkdir(cwd, { recursive: true });
+    // A directory where config.json belongs makes every save fail at rename.
+    const configPath = getUserConfigPath(agentDir);
+    await mkdir(configPath, { recursive: true });
+
+    const { pi, handlers, commands } = createFakePi(false);
+    createPiFastModeExtension({
+      extensionDir: join(root, "global", "pi-openai-fast-mode", "src"),
+      agentDir,
+    })(pi as any);
+
+    const model = { provider: "openai-codex", id: "gpt-6.1-sol" };
+    const ctx = makeCtx(cwd, model);
+    await runHandler(
+      handlers,
+      "session_start",
+      { type: "session_start", reason: "startup" },
+      ctx,
+    );
+    await commands.get("fast")!.handler("on", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.any(String), "error");
+    expect(
+      await runHandler(
+        handlers,
+        "before_provider_request",
+        { type: "before_provider_request", payload: { model: model.id } },
+        ctx,
+      ),
+    ).toBeUndefined();
+    expectFastIndicatorHidden(ctx);
+    expect(await readdir(dirname(configPath))).toEqual(["config.json"]);
+  });
+
   it("session_shutdown keeps a /fast change made by another session sharing the config", async () => {
     // Pi subagents load their own copy of this extension against the same
     // config file. A subagent shutting down must not write the enabled state
@@ -243,7 +315,12 @@ describe("piFastModeExtension runtime behavior", () => {
     const subagent = createFakePi(false);
     createPiFastModeExtension(options)(subagent.pi as any);
     const subagentCtx = makeCtx(cwd, model);
-    await runHandler(subagent.handlers, "session_start", startEvent, subagentCtx);
+    await runHandler(
+      subagent.handlers,
+      "session_start",
+      startEvent,
+      subagentCtx,
+    );
 
     const parent = createFakePi(false);
     createPiFastModeExtension(options)(parent.pi as any);

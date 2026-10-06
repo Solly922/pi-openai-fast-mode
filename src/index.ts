@@ -75,6 +75,7 @@ export function createPiFastModeExtension(
 
     async function saveCurrent(
       ctx: Pick<ExtensionContext, "cwd">,
+      next: FastModeConfig,
     ): Promise<void> {
       if (!configPath || loadedCwd !== ctx.cwd) {
         await loadForContext(ctx);
@@ -84,7 +85,10 @@ export function createPiFastModeExtension(
         throw new Error("Fast Mode config path was not resolved");
       }
 
-      await saveConfigToPath(configPath, config);
+      await saveConfigToPath(configPath, next);
+      // Adopt the change only once it is saved, so a failed save leaves
+      // requests and the status indicator agreeing on the previous state.
+      config = next;
     }
 
     function refreshCurrentModel(ctx: Pick<ExtensionContext, "model">): void {
@@ -107,8 +111,8 @@ export function createPiFastModeExtension(
         try {
           await ensureLoaded(ctx);
           refreshCurrentModel(ctx);
-          config.enabled = parseFastCommand(args, config.enabled);
-          await saveCurrent(ctx);
+          const enabled = parseFastCommand(args, config.enabled);
+          await saveCurrent(ctx, { ...config, enabled });
           updateFastStatus(ctx, config, currentModel);
         } catch (error) {
           notifyError(ctx, error);
@@ -116,14 +120,16 @@ export function createPiFastModeExtension(
       },
     });
 
-    pi.on("session_start", async (_event, ctx) => {
+    pi.on("session_start", async (event, ctx) => {
       try {
         currentModel = toModelRef(ctx.model);
         await loadForContext(ctx);
 
-        if (pi.getFlag("fast") === true) {
-          config.enabled = true;
-          await saveCurrent(ctx);
+        // Pi keeps CLI flags for the whole process and fires session_start
+        // again on /new, /resume, /fork and /reload. Apply --fast only at
+        // startup so it cannot override a later /fast off.
+        if (event.reason === "startup" && pi.getFlag("fast") === true) {
+          await saveCurrent(ctx, { ...config, enabled: true });
         }
 
         updateFastStatus(ctx, config, currentModel);

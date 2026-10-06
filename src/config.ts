@@ -254,7 +254,8 @@ export async function saveConfigToPath(
     await fs.writeFile(tempPath, json, "utf8");
     await fs.rename(tempPath, targetPath);
   } catch (error) {
-    await fs.rm(tempPath, { force: true });
+    // Best-effort cleanup; report the write failure, not a cleanup failure.
+    await fs.rm(tempPath, { force: true }).catch(() => {});
     throw error;
   }
 }
