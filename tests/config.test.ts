@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -172,6 +180,42 @@ describe("config JSON IO", () => {
       targets: [
         { provider: "openai", model: "gpt-5.4", serviceTier: "priority" },
       ],
+    });
+  });
+
+  it("saveConfigToPath never exposes a partially written file to concurrent readers", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    const config = { ...cloneConfig(), enabled: true };
+    await saveConfigToPath(configPath, config);
+
+    // Pi subagents and other sessions load this file while another one saves
+    // it. A torn read parses as invalid JSON and falls back to enabled: false,
+    // which that session would then persist.
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const [, loaded] = await Promise.all([
+        saveConfigToPath(configPath, config),
+        loadConfigFromPath(configPath),
+      ]);
+      expect(loaded.enabled).toBe(true);
+    }
+
+    // Temporary files are renamed into place, never left beside the config.
+    expect(await readdir(dir)).toEqual(["config.json"]);
+  });
+
+  it("saveConfigToPath updates a symlinked config without replacing the link", async () => {
+    const dir = await makeTempDir();
+    const realPath = join(dir, "dotfiles-config.json");
+    const linkPath = join(dir, "config.json");
+    await writeFile(realPath, "{}", "utf8");
+    await symlink(realPath, linkPath);
+
+    await saveConfigToPath(linkPath, { ...cloneConfig(), enabled: true });
+
+    expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(await readFile(realPath, "utf8"))).toMatchObject({
+      enabled: true,
     });
   });
 });

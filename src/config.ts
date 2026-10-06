@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
@@ -227,11 +228,25 @@ export async function saveConfigToPath(
 ): Promise<void> {
   const normalized = normalizeConfig(config);
   await fs.mkdir(dirname(configPath), { recursive: true });
-  await fs.writeFile(
-    configPath,
-    `${JSON.stringify(normalized, null, 2)}\n`,
-    "utf8",
-  );
+
+  // Every Pi session and subagent loads this file on startup, so write a
+  // sibling temp file and rename it into place. A concurrent reader then sees
+  // the old or new config, never a truncated one that parses as invalid and
+  // falls back to enabled: false. Resolve symlinks first so the rename
+  // replaces the real file instead of the link.
+  const targetPath = await fs.realpath(configPath).catch(() => configPath);
+  const tempPath = `${targetPath}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(
+      tempPath,
+      `${JSON.stringify(normalized, null, 2)}\n`,
+      "utf8",
+    );
+    await fs.rename(tempPath, targetPath);
+  } catch (error) {
+    await fs.rm(tempPath, { force: true });
+    throw error;
+  }
 }
 
 export async function saveConfigForScope(

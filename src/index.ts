@@ -142,16 +142,11 @@ export function createPiFastModeExtension(
       return getFastModePayload(config, model, event.payload);
     });
 
-    pi.on("session_shutdown", async (_event, ctx) => {
-      try {
-        if (configPath) {
-          await saveConfigToPath(configPath, config);
-        }
-      } catch (error) {
-        notifyError(ctx, error);
-      } finally {
-        clearFastStatus(ctx);
-      }
+    // No save here: /fast and --fast persist immediately. Saving on shutdown
+    // would write this session's possibly stale enabled state over a toggle
+    // made since by another session sharing the file, such as a Pi subagent.
+    pi.on("session_shutdown", (_event, ctx) => {
+      clearFastStatus(ctx);
     });
   };
 }

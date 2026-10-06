@@ -235,6 +235,45 @@ describe("piFastModeExtension runtime behavior", () => {
     },
   );
 
+  it("session_shutdown keeps a /fast change made by another session sharing the config", async () => {
+    // Pi subagents load their own copy of this extension against the same
+    // config file. A subagent shutting down must not write the enabled state
+    // it loaded at startup over a /fast toggle made since then.
+    const root = await makeTempDir();
+    const cwd = join(root, "project");
+    const agentDir = join(root, "agent");
+    await mkdir(cwd, { recursive: true });
+    const options = {
+      extensionDir: join(root, "global", "pi-openai-fast-mode", "src"),
+      agentDir,
+    };
+    const model = { provider: "openai-codex", id: "gpt-6.1-sol" };
+    const startEvent = { type: "session_start", reason: "startup" };
+
+    const subagent = createFakePi(false);
+    createPiFastModeExtension(options)(subagent.pi as any);
+    const subagentCtx = makeCtx(cwd, model);
+    await runHandler(subagent.handlers, "session_start", startEvent, subagentCtx);
+
+    const parent = createFakePi(false);
+    createPiFastModeExtension(options)(parent.pi as any);
+    const parentCtx = makeCtx(cwd, model);
+    await runHandler(parent.handlers, "session_start", startEvent, parentCtx);
+    await parent.commands.get("fast")!.handler("on", parentCtx);
+
+    await runHandler(
+      subagent.handlers,
+      "session_shutdown",
+      { type: "session_shutdown", reason: "quit" },
+      subagentCtx,
+    );
+
+    expect(
+      JSON.parse(await readFile(getUserConfigPath(agentDir), "utf8")),
+    ).toMatchObject({ enabled: true });
+    expectFastIndicatorHidden(subagentCtx);
+  });
+
   it("/fast, /fast on, and /fast toggle persist expected enabled states", async () => {
     const root = await makeTempDir();
     const cwd = join(root, "project");
