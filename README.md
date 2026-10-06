@@ -57,7 +57,7 @@ Fast Mode starts disabled and applies to OpenAI GPT model IDs version 5.4 or new
 }
 ```
 
-The `+` suffix denotes a GPT model version range: `gpt-5.4+` matches version 5.4 and later, including model-name suffixes. On startup, saved targets are refreshed to the current defaults, including `serviceTier: "priority"`, while preserving the enabled state.
+The `+` suffix denotes a GPT model version range: `gpt-5.4+` matches version 5.4 and later, including model-name suffixes. Targets always come from the installed package, so saved targets are ignored on load and upgrades apply automatically. The config file is only written when Fast Mode is turned on or off with `/fast` or `--fast`, so Pi subagents sharing the file cannot undo a toggle.
 
 User-scoped state is stored under `~/.pi/agent/extensions/pi-openai-fast-mode/config.json`.
 Project-scoped state is stored under `./.pi/pi-openai-fast-mode/config.json`.

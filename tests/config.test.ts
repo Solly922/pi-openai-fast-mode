@@ -218,6 +218,20 @@ describe("config JSON IO", () => {
       enabled: true,
     });
   });
+
+  it("saveConfigToPath creates the target of a dangling symlink without replacing the link", async () => {
+    const dir = await makeTempDir();
+    const realPath = join(dir, "dotfiles-config.json");
+    const linkPath = join(dir, "config.json");
+    await symlink(realPath, linkPath);
+
+    await saveConfigToPath(linkPath, { ...cloneConfig(), enabled: true });
+
+    expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(await readFile(realPath, "utf8"))).toMatchObject({
+      enabled: true,
+    });
+  });
 });
 
 describe("persistence scope selection", () => {

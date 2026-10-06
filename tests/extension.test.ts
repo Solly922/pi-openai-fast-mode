@@ -4,11 +4,7 @@ import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPiFastModeExtension } from "../src/index";
-import {
-  DEFAULT_CONFIG,
-  getProjectConfigPath,
-  getUserConfigPath,
-} from "../src/config";
+import { getProjectConfigPath, getUserConfigPath } from "../src/config";
 import { STATUS_KEY } from "../src/types";
 
 type FakePi = {
@@ -140,7 +136,9 @@ describe("piFastModeExtension registration", () => {
 });
 
 describe("piFastModeExtension runtime behavior", () => {
-  it("refreshes persisted fast targets to priority on startup without changing enabled", async () => {
+  it("applies the package targets on startup without rewriting the config file", async () => {
+    // A startup save could write this session's enabled value over a /fast
+    // toggle another session (such as a Pi subagent) made after the read.
     const root = await makeTempDir();
     const cwd = join(root, "project");
     const agentDir = join(root, "agent");
@@ -149,16 +147,11 @@ describe("piFastModeExtension runtime behavior", () => {
       recursive: true,
     });
     await mkdir(cwd, { recursive: true });
-    await writeFile(
-      configPath,
-      JSON.stringify({
-        enabled: true,
-        targets: [
-          { provider: "openai", model: "gpt-5.4", serviceTier: "fast" },
-        ],
-      }),
-      "utf8",
-    );
+    const savedConfig = JSON.stringify({
+      enabled: true,
+      targets: [{ provider: "openai", model: "gpt-5.4", serviceTier: "fast" }],
+    });
+    await writeFile(configPath, savedConfig, "utf8");
 
     const { pi, handlers } = createFakePi(false);
     createPiFastModeExtension({
@@ -174,18 +167,15 @@ describe("piFastModeExtension runtime behavior", () => {
       ctx,
     );
 
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
-      enabled: true,
-      targets: DEFAULT_CONFIG.targets,
-    });
+    expect(await readFile(configPath, "utf8")).toBe(savedConfig);
     expect(
       await runHandler(
         handlers,
         "before_provider_request",
-        { type: "before_provider_request", payload: { model: "gpt-5.4" } },
-        ctx,
+        { type: "before_provider_request", payload: { model: "gpt-6.1-sol" } },
+        makeCtx(cwd, { provider: "openai", id: "gpt-6.1-sol" }),
       ),
-    ).toEqual({ model: "gpt-5.4", service_tier: "priority" });
+    ).toEqual({ model: "gpt-6.1-sol", service_tier: "priority" });
   });
 
   it.each(["gpt-6-luna", "gpt-6-sol"])(

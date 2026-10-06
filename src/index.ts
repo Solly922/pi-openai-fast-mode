@@ -56,13 +56,13 @@ export function createPiFastModeExtension(
         agentDir,
       });
 
+      // Targets always come from this package, so upgrades apply without
+      // touching the file. Loading never saves: Pi subagents load their own
+      // copy against the same file, and a save here could write a stale
+      // enabled value over a /fast toggle made after this read.
       config = syncSupportedTargets(loaded.config);
       configPath = loaded.path;
       loadedCwd = ctx.cwd;
-
-      // Persist the package's current target list on every load so upgrades
-      // automatically update existing config files without changing enabled.
-      await saveConfigToPath(configPath, config);
     }
 
     async function ensureLoaded(

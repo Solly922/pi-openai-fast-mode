@@ -226,22 +226,32 @@ export async function saveConfigToPath(
   configPath: string,
   config: FastModeConfig,
 ): Promise<void> {
-  const normalized = normalizeConfig(config);
+  const json = `${JSON.stringify(normalizeConfig(config), null, 2)}\n`;
   await fs.mkdir(dirname(configPath), { recursive: true });
+
+  // Resolve symlinks so the rename below replaces the real file, not the
+  // link. realpath also fails for a dangling link; writeFile follows it and
+  // creates the target, and there is no existing file to tear yet.
+  const realPath = await fs.realpath(configPath).catch(() => undefined);
+  const isDanglingLink =
+    !realPath &&
+    (await fs.lstat(configPath).then(
+      (stats) => stats.isSymbolicLink(),
+      () => false,
+    ));
+  if (isDanglingLink) {
+    await fs.writeFile(configPath, json, "utf8");
+    return;
+  }
 
   // Every Pi session and subagent loads this file on startup, so write a
   // sibling temp file and rename it into place. A concurrent reader then sees
   // the old or new config, never a truncated one that parses as invalid and
-  // falls back to enabled: false. Resolve symlinks first so the rename
-  // replaces the real file instead of the link.
-  const targetPath = await fs.realpath(configPath).catch(() => configPath);
+  // falls back to enabled: false.
+  const targetPath = realPath ?? configPath;
   const tempPath = `${targetPath}.${randomUUID()}.tmp`;
   try {
-    await fs.writeFile(
-      tempPath,
-      `${JSON.stringify(normalized, null, 2)}\n`,
-      "utf8",
-    );
+    await fs.writeFile(tempPath, json, "utf8");
     await fs.rename(tempPath, targetPath);
   } catch (error) {
     await fs.rm(tempPath, { force: true });
