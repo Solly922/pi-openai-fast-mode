@@ -1,13 +1,12 @@
 import {
   lazyStream,
-  openAICodexResponsesApi,
   type Api,
   type Model,
   type ModelCost,
   type ModelCostRates,
   type SimpleStreamOptions,
   type TranscriptContext,
-} from "@earendil-works/pi-ai/compat";
+} from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -32,8 +31,10 @@ const PLACEHOLDER_API_KEY = "openai-codex-login-resolved-per-request";
 type ModelRegistry = ExtensionContext["modelRegistry"];
 
 /**
- * pi-ai bills priority at 2x (2.5x for gpt-5.5), but only when it sets the
- * tier itself, which it cannot here. Listing the higher rates keeps Pi's cost
+ * pi-ai bills priority at 2x (2.5x for gpt-5.5) only when the request option
+ * or the response names that tier. Neither happens here: the tier is set in
+ * the payload, and Codex responses report "default" even for priority
+ * requests (checked 2026-10-06). Listing the higher rates keeps Pi's cost
  * estimates honest.
  */
 function priorityCost(model: Model<Api>): ModelCost {
@@ -78,14 +79,13 @@ export function fastCodexModels(
 }
 
 /**
- * Streams through Pi's own Codex implementation with the openai-codex login.
- * pi-ai's Codex streamSimple drops a `serviceTier` option, so the tier is set
- * in `onPayload`, which it keeps and calls on every request. That includes
+ * Streams through Pi's own openai-codex provider with its login. pi-ai's
+ * Codex streamSimple drops a `serviceTier` option, so the tier is set in
+ * `onPayload`, which it keeps and calls on every request. That includes
  * compaction summaries, which skip Pi's before_provider_request hook.
  */
 export function createFastCodexStream(
-  registry: Pick<ModelRegistry, "getApiKeyForProvider">,
-  codex = openAICodexResponsesApi(),
+  registry: Pick<ModelRegistry, "getApiKeyAndHeaders" | "getProvider">,
 ) {
   return (
     model: Model<Api>,
@@ -93,17 +93,30 @@ export function createFastCodexStream(
     options?: SimpleStreamOptions,
   ) =>
     lazyStream(model, async () => {
-      // Resolve per request so Pi refreshes the Codex OAuth token near expiry.
-      const apiKey = await registry.getApiKeyForProvider(CODEX_PROVIDER);
-      if (!apiKey) {
+      // Resolve per request, so Pi refreshes the OAuth token near expiry and
+      // applies any openai-codex headers, endpoint or env from models.json.
+      const auth = await registry.getApiKeyAndHeaders({
+        ...model,
+        provider: CODEX_PROVIDER,
+      });
+      if (!auth.ok) {
         throw new Error(
-          `${FAST_CODEX_PROVIDER} uses your ${CODEX_PROVIDER} login. Run /login and choose OpenAI Codex.`,
+          `${FAST_CODEX_PROVIDER} uses your ${CODEX_PROVIDER} login: ${auth.error}`,
         );
       }
+      const codex = registry.getProvider(CODEX_PROVIDER);
+      if (!codex) throw new Error(`${CODEX_PROVIDER} is not registered.`);
 
-      return codex.streamSimple(model, context, {
+      const target = auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
+      return codex.streamSimple(target, context, {
         ...options,
-        apiKey,
+        apiKey: auth.apiKey,
+        // Same precedence as Pi: per-request options win over login defaults.
+        headers: { ...auth.headers, ...options?.headers },
+        env:
+          auth.env || options?.env
+            ? { ...auth.env, ...options?.env }
+            : undefined,
         // Pi's hooks run first; the tier goes on last so none can drop it.
         onPayload: async (payload, payloadModel) => {
           const next =

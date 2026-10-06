@@ -99,8 +99,10 @@ describe("createFastCodexStream", () => {
   const model = codexModel("gpt-6.1-sol", { provider: "openai-codex-fast" });
   const done = { type: "done", reason: "stop", message: { role: "assistant" } };
 
-  // A Codex API stand-in that records its options and yields one event.
-  function fakeCodex() {
+  // A registry whose openai-codex provider records its calls and yields one event.
+  function fakeRegistry(
+    auth: Record<string, unknown> = { ok: true, apiKey: "codex-token" },
+  ) {
     const calls: any[] = [];
     const codex = {
       streamSimple: vi.fn((...args: any[]) => {
@@ -109,9 +111,14 @@ describe("createFastCodexStream", () => {
           yield done;
         })();
       }),
-      stream: vi.fn(),
+    };
+    const registry = {
+      getApiKeyAndHeaders: vi.fn(async () => auth),
+      getProvider: vi.fn((provider: string) =>
+        provider === "openai-codex" ? codex : undefined,
+      ),
     } as any;
-    return { codex, calls };
+    return { registry, codex, calls };
   }
 
   async function drain(stream: AsyncIterable<unknown>) {
@@ -120,29 +127,38 @@ describe("createFastCodexStream", () => {
     return events;
   }
 
-  it("uses the Codex login and puts every request on priority", async () => {
-    const { codex, calls } = fakeCodex();
+  it("streams through openai-codex with its login and puts every request on priority", async () => {
+    const { registry, calls } = fakeRegistry({
+      ok: true,
+      apiKey: "codex-token",
+      headers: { "x-login": "1", "x-shared": "login" },
+      env: { LOGIN_ENV: "1" },
+    });
     const piHook = vi.fn(async (payload: any) => ({
       ...payload,
       hooked: true,
     }));
-    const stream = createFastCodexStream(
-      { getApiKeyForProvider: async (provider) => `${provider}-token` },
-      codex,
-    );
+    const stream = createFastCodexStream(registry);
 
     expect(
       await drain(
         stream(model, { messages: [] } as any, {
           apiKey: "placeholder",
+          headers: { "x-shared": "request" },
           onPayload: piHook,
         }),
       ),
     ).toEqual([done]);
 
+    // Auth is resolved for openai-codex, not the fast provider.
+    expect(registry.getApiKeyAndHeaders).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "openai-codex", id: "gpt-6.1-sol" }),
+    );
     const [calledModel, , options] = calls[0];
     expect(calledModel).toBe(model);
-    expect(options.apiKey).toBe("openai-codex-token");
+    expect(options.apiKey).toBe("codex-token");
+    expect(options.headers).toEqual({ "x-login": "1", "x-shared": "request" });
+    expect(options.env).toEqual({ LOGIN_ENV: "1" });
     // Pi's hooks run first, then the tier goes on.
     expect(await options.onPayload({ model: "gpt-6.1-sol" }, model)).toEqual({
       model: "gpt-6.1-sol",
@@ -152,33 +168,48 @@ describe("createFastCodexStream", () => {
   });
 
   it("adds priority without Pi's hook, as compaction requests do", async () => {
-    const { codex, calls } = fakeCodex();
-    const stream = createFastCodexStream(
-      { getApiKeyForProvider: async () => "token" },
-      codex,
-    );
+    const { registry, calls } = fakeRegistry();
+    const stream = createFastCodexStream(registry);
 
-    await drain(
-      stream(model, { messages: [] } as any, { apiKey: "placeholder" }),
-    );
+    await drain(stream(model, { messages: [] } as any));
 
     expect(
       await calls[0][2].onPayload({ model: "gpt-6.1-sol" }, model),
     ).toEqual({ model: "gpt-6.1-sol", service_tier: "priority" });
   });
 
-  it("ends with an error event when there is no Codex login", async () => {
-    const { codex } = fakeCodex();
-    const stream = createFastCodexStream(
-      { getApiKeyForProvider: async () => undefined },
-      codex,
+  it("uses the endpoint the login resolves", async () => {
+    const { registry, calls } = fakeRegistry({
+      ok: true,
+      apiKey: "codex-token",
+      baseUrl: "https://proxy.example/backend-api",
+    });
+
+    await drain(
+      createFastCodexStream(registry)(model, { messages: [] } as any),
     );
 
-    const events: any[] = await drain(stream(model, { messages: [] } as any));
+    expect(calls[0][0]).toEqual({
+      ...model,
+      baseUrl: "https://proxy.example/backend-api",
+    });
+  });
+
+  it("ends with the login error instead of streaming", async () => {
+    const { registry, codex } = fakeRegistry({
+      ok: false,
+      error: "Token refresh failed: invalid_grant",
+    });
+
+    const events: any[] = await drain(
+      createFastCodexStream(registry)(model, { messages: [] } as any),
+    );
 
     expect(codex.streamSimple).not.toHaveBeenCalled();
     expect(events.at(-1).type).toBe("error");
-    expect(events.at(-1).error.errorMessage).toMatch(/openai-codex login/);
+    expect(events.at(-1).error.errorMessage).toBe(
+      "openai-codex-fast uses your openai-codex login: Token refresh failed: invalid_grant",
+    );
   });
 });
 
